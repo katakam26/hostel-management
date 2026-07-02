@@ -74,6 +74,7 @@ class DashboardScreen extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 24),
+        const _MoveOutRequests(),
         Text('This month · ${Dates.prettyMonth(month)}',
             style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 12),
@@ -82,6 +83,87 @@ class DashboardScreen extends StatelessWidget {
         _ExpensesSection(month: month),
       ],
     );
+  }
+}
+
+/// Pending tenant move-out requests, with a one-tap check-out that frees the
+/// bed and resolves the request. Hidden entirely when there are none.
+class _MoveOutRequests extends StatelessWidget {
+  const _MoveOutRequests();
+
+  @override
+  Widget build(BuildContext context) {
+    final fs = context.read<FirestoreService>();
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: fs.requests.where('status', isEqualTo: 'open').snapshots(),
+      builder: (context, snap) {
+        if (!snap.hasData) return const SizedBox.shrink();
+        final requests = snap.data!.docs
+            .where((d) => d.data()['kind'] == 'move_out')
+            .toList();
+        if (requests.isEmpty) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Move-out requests',
+                style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 8),
+            ...requests.map((d) {
+              final r = d.data();
+              return Card(
+                color: Colors.orange.withValues(alpha: 0.10),
+                child: ListTile(
+                  leading: const Icon(Icons.logout, color: Colors.orange),
+                  title: Text(r['fromName'] as String? ?? 'Tenant'),
+                  subtitle: Text(r['details'] as String? ?? ''),
+                  trailing: Wrap(
+                    spacing: 4,
+                    children: [
+                      TextButton(
+                        onPressed: () => fs.requests
+                            .doc(d.id)
+                            .update({'status': 'resolved'}),
+                        child: const Text('Dismiss'),
+                      ),
+                      FilledButton(
+                        onPressed: () => _checkOut(
+                            fs, d.id, r['fromId'] as String? ?? ''),
+                        child: const Text('Check out'),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+            const SizedBox(height: 24),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _checkOut(
+      FirestoreService fs, String requestId, String tenantId) async {
+    if (tenantId.isEmpty) return;
+    final tSnap = await fs.tenants.doc(tenantId).get();
+    final batch = fs.tenants.firestore.batch();
+    batch.update(fs.requests.doc(requestId), {'status': 'resolved'});
+    if (tSnap.exists) {
+      final data = tSnap.data()!;
+      batch.update(fs.tenants.doc(tenantId), {
+        'status': 'moved_out',
+        'checkOutDate': FieldValue.serverTimestamp(),
+      });
+      final bedId = data['bedId'] as String?;
+      final roomId = data['roomId'] as String?;
+      if (bedId != null) {
+        batch.update(fs.beds.doc(bedId), {'occupiedByTenantId': null});
+      }
+      if (roomId != null) {
+        batch.update(fs.rooms.doc(roomId), {'status': 'vacant'});
+      }
+    }
+    await batch.commit();
   }
 }
 

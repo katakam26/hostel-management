@@ -147,7 +147,29 @@ class _BookingFormState extends State<_BookingForm> {
     final endHour = (_start.hour + 1) % 24;
     final endStr =
         '${endHour.toString().padLeft(2, '0')}:${_start.minute.toString().padLeft(2, '0')}';
+    int mins(String hhmm) {
+      final p = hhmm.split(':');
+      return (int.tryParse(p[0]) ?? 0) * 60 + (int.tryParse(p.last) ?? 0);
+    }
+
     try {
+      // Reject the slot if it overlaps an existing booking for today.
+      final newStart = mins(startStr);
+      final newEnd = newStart + 60;
+      final existing =
+          await fs.amenityBookings.where('date', isEqualTo: Dates.today()).get();
+      final clash = existing.docs.any((d) {
+        final s = mins(d.data()['slotStart'] as String? ?? '00:00');
+        final e = mins(d.data()['slotEnd'] as String? ?? '00:00');
+        return newStart < e && s < newEnd; // ranges overlap
+      });
+      if (clash) {
+        messenger.showSnackBar(const SnackBar(
+          content: Text('That slot overlaps an existing booking. Pick another.'),
+        ));
+        return;
+      }
+
       await fs.amenityBookings.add({
         'amenity': 'washing_machine',
         'tenantId': widget.tenantId,

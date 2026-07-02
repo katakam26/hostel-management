@@ -88,12 +88,23 @@ class _RoomCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 _row('Room', room?.roomCode ?? '—'),
-                _row('Bed', _bedLabel(fs, tenant.bedId)),
+                FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                  future: tenant.bedId == null
+                      ? null
+                      : fs.beds.doc(tenant.bedId).get(),
+                  builder: (context, bedSnap) {
+                    if (tenant.bedId == null) return _row('Bed', '—');
+                    final n = (bedSnap.hasData && bedSnap.data!.exists)
+                        ? bedSnap.data!.data()?['bedNumber']?.toString()
+                        : null;
+                    return _row('Bed', n == null ? '…' : 'Bed $n');
+                  },
+                ),
                 if (room != null) ...[
                   _row('Type',
                       '${room.sharing}-sharing · ${room.ac ? "AC" : "Non-AC"}'),
                   _row('Washroom', room.washroom),
-                  _row('Rent', '₹${room.rentAmount} / month'),
+                  _row('Rent', '₹${room.rentAmount} / bed / month'),
                   if (room.amenities.isNotEmpty)
                     _row('Amenities',
                         room.amenities.map((a) => a.replaceAll('_', ' ')).join(', ')),
@@ -105,9 +116,6 @@ class _RoomCard extends StatelessWidget {
       },
     );
   }
-
-  String _bedLabel(FirestoreService fs, String? bedId) =>
-      bedId == null ? '—' : 'assigned';
 
   Widget _row(String label, String value) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),

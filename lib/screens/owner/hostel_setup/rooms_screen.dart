@@ -54,11 +54,27 @@ class RoomsScreen extends StatelessWidget {
                 title: Text(room.roomCode),
                 subtitle: Text(
                   '${room.sharing}-sharing · ${room.ac ? "AC" : "Non-AC"} · '
-                  '${room.washroom} washroom · ₹${room.rentAmount}/mo',
+                  '${room.washroom} washroom · ₹${room.rentAmount}/bed/mo',
                 ),
-                trailing: Chip(
-                  label: Text(room.status),
-                  visualDensity: VisualDensity.compact,
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Chip(
+                      label: Text(room.status),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    PopupMenuButton<String>(
+                      onSelected: (v) {
+                        if (v == 'rent') _editRent(context, fs, room);
+                        if (v == 'delete') _deleteRoom(context, fs, room);
+                      },
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(value: 'rent', child: Text('Edit rent')),
+                        PopupMenuItem(
+                            value: 'delete', child: Text('Delete room')),
+                      ],
+                    ),
+                  ],
                 ),
               );
             },
@@ -100,6 +116,80 @@ class RoomsScreen extends StatelessWidget {
         'occupiedByTenantId': null,
       });
     }
+    await batch.commit();
+  }
+
+  Future<void> _editRent(
+      BuildContext context, FirestoreService fs, Room room) async {
+    final rent = TextEditingController(text: room.rentAmount.toString());
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Edit rent · ${room.roomCode}'),
+        content: TextField(
+          controller: rent,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+              labelText: 'Rent per bed / month (₹)', prefixText: '₹ '),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final value = num.tryParse(rent.text);
+    if (value == null) return;
+    await fs.rooms.doc(room.id).update({'rentAmount': value});
+  }
+
+  /// Delete a room and its beds — only when no bed is occupied, so we never
+  /// orphan a tenant.
+  Future<void> _deleteRoom(
+      BuildContext context, FirestoreService fs, Room room) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final beds = await fs.beds.where('roomId', isEqualTo: room.id).get();
+    final occupied =
+        beds.docs.any((d) => d.data()['occupiedByTenantId'] != null);
+    if (occupied) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('Check out its tenants before deleting this room.'),
+      ));
+      return;
+    }
+    if (!context.mounted) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete room ${room.roomCode}?'),
+        content: const Text('This removes the room and its beds. This cannot '
+            'be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final batch = fs.rooms.firestore.batch();
+    for (final b in beds.docs) {
+      batch.delete(fs.beds.doc(b.id));
+    }
+    batch.delete(fs.rooms.doc(room.id));
     await batch.commit();
   }
 }
@@ -215,7 +305,9 @@ class _AddRoomSheetState extends State<_AddRoomSheet> {
                 controller: _rent,
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(
-                    labelText: 'Monthly rent (₹)', prefixText: '₹ '),
+                    labelText: 'Rent per bed / month (₹)',
+                    helperText: 'Each tenant in the room is billed this amount',
+                    prefixText: '₹ '),
                 validator: (v) =>
                     num.tryParse(v ?? '') == null ? 'Enter a number' : null,
               ),

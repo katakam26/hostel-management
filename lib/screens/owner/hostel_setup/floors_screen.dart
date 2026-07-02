@@ -47,7 +47,17 @@ class FloorsScreen extends StatelessWidget {
               return ListTile(
                 leading: const Icon(Icons.layers_outlined),
                 title: Text(floor.label),
-                trailing: const Icon(Icons.chevron_right),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: 'Delete floor',
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: () => _deleteFloor(context, fs, floor),
+                    ),
+                    const Icon(Icons.chevron_right),
+                  ],
+                ),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (_) => RoomsScreen(block: block, floor: floor),
@@ -93,5 +103,38 @@ class FloorsScreen extends StatelessWidget {
     if (number == null) return;
     await fs.floors
         .add(Floor(id: '', blockId: block.id, number: number).toMap());
+  }
+
+  /// Delete a floor — only when it has no rooms, so rooms/beds never orphan.
+  Future<void> _deleteFloor(
+      BuildContext context, FirestoreService fs, Floor floor) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final rooms = await fs.rooms.where('floorId', isEqualTo: floor.id).get();
+    if (rooms.docs.isNotEmpty) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('Delete this floor\'s rooms first.'),
+      ));
+      return;
+    }
+    if (!context.mounted) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete ${floor.label}?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await fs.floors.doc(floor.id).delete();
   }
 }

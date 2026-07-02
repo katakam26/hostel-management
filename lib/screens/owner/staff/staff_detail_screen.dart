@@ -81,7 +81,21 @@ class StaffDetailScreen extends StatelessWidget {
                   title: Text(
                     '${shift['day']}  ·  ${shift['start']} – ${shift['end']}',
                   ),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.close, size: 18),
+                    tooltip: 'Remove shift',
+                    onPressed: () => fs.staff.doc(s.id).update({
+                      'shifts': FieldValue.arrayRemove([shift]),
+                    }),
+                  ),
                 ),
+              const Divider(height: 32),
+              TextButton.icon(
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
+                onPressed: () => _deleteStaff(context, fs, s),
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('Delete staff'),
+              ),
             ],
           );
         },
@@ -154,5 +168,53 @@ class StaffDetailScreen extends StatelessWidget {
         {'day': day, 'start': start.text.trim(), 'end': end.text.trim()},
       ]),
     });
+  }
+
+  /// Delete a staff member and their login profile. Complaints already assigned
+  /// to them are unassigned so they don't dangle. (Their Firebase Auth account
+  /// is removed from the Firebase console.)
+  Future<void> _deleteStaff(
+      BuildContext context, FirestoreService fs, Staff s) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete ${s.name}?'),
+        content: const Text(
+            'This removes the staff member and disables their login. '
+            'This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    final batch = fs.staff.firestore.batch();
+    // Unassign any complaints pointing at this staff member.
+    final assigned =
+        await fs.complaints.where('assignedStaffId', isEqualTo: s.id).get();
+    for (final c in assigned.docs) {
+      batch.update(fs.complaints.doc(c.id), {
+        'assignedStaffId': null,
+        'assignedStaffName': null,
+        'status': 'open',
+      });
+    }
+    final users = await fs.users.where('linkedId', isEqualTo: s.id).get();
+    for (final u in users.docs) {
+      batch.delete(fs.users.doc(u.id));
+    }
+    batch.delete(fs.staff.doc(s.id));
+    await batch.commit();
+
+    if (context.mounted) Navigator.of(context).pop();
   }
 }

@@ -75,6 +75,13 @@ class TenantDetailScreen extends StatelessWidget {
                   icon: const Icon(Icons.logout),
                   label: const Text('Check out tenant'),
                 ),
+              const SizedBox(height: 8),
+              TextButton.icon(
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
+                onPressed: () => _deleteTenant(context, fs, t),
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('Delete tenant'),
+              ),
             ],
           );
         },
@@ -130,5 +137,50 @@ class TenantDetailScreen extends StatelessWidget {
       batch.update(fs.rooms.doc(t.roomId), {'status': 'vacant'});
     }
     await batch.commit();
+  }
+
+  /// Permanently delete a tenant: free their bed, re-open the room, remove the
+  /// tenant doc and their login profile. (Their Firebase Auth account can only
+  /// be removed from the Firebase console — the login just won't resolve.)
+  Future<void> _deleteTenant(
+      BuildContext context, FirestoreService fs, Tenant t) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete ${t.name}?'),
+        content: const Text(
+            'This removes the tenant, frees their bed, and disables their '
+            'login. Payment history is kept. This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    final batch = fs.tenants.firestore.batch();
+    if (t.bedId != null) {
+      batch.update(fs.beds.doc(t.bedId), {'occupiedByTenantId': null});
+    }
+    if (t.roomId != null && t.isActive) {
+      batch.update(fs.rooms.doc(t.roomId), {'status': 'vacant'});
+    }
+    // Remove the login profile(s) linked to this tenant doc.
+    final users = await fs.users.where('linkedId', isEqualTo: t.id).get();
+    for (final u in users.docs) {
+      batch.delete(fs.users.doc(u.id));
+    }
+    batch.delete(fs.tenants.doc(t.id));
+    await batch.commit();
+
+    if (context.mounted) Navigator.of(context).pop();
   }
 }

@@ -50,7 +50,22 @@ class HostelSetupScreen extends StatelessWidget {
               return ListTile(
                 leading: const Icon(Icons.apartment),
                 title: Text(block.name),
-                trailing: const Icon(Icons.chevron_right),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    PopupMenuButton<String>(
+                      onSelected: (v) {
+                        if (v == 'rename') _renameBlock(context, fs, block);
+                        if (v == 'delete') _deleteBlock(context, fs, block);
+                      },
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(value: 'rename', child: Text('Rename')),
+                        PopupMenuItem(value: 'delete', child: Text('Delete')),
+                      ],
+                    ),
+                    const Icon(Icons.chevron_right),
+                  ],
+                ),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (_) => FloorsScreen(block: block),
@@ -94,6 +109,68 @@ class HostelSetupScreen extends StatelessWidget {
     );
     if (name == null || name.isEmpty) return;
     await fs.blocks.add(Block(id: '', hostelId: hostelId, name: name).toMap());
+  }
+
+  Future<void> _renameBlock(
+      BuildContext context, FirestoreService fs, Block block) async {
+    final controller = TextEditingController(text: block.name);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename block'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Block name'),
+          onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (name == null || name.isEmpty) return;
+    await fs.blocks.doc(block.id).update({'name': name});
+  }
+
+  /// Delete a block — only when it has no floors, so nothing orphans below it.
+  Future<void> _deleteBlock(
+      BuildContext context, FirestoreService fs, Block block) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final floors = await fs.floors.where('blockId', isEqualTo: block.id).get();
+    if (floors.docs.isNotEmpty) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('Delete this block\'s floors first.'),
+      ));
+      return;
+    }
+    if (!context.mounted) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete ${block.name}?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await fs.blocks.doc(block.id).delete();
   }
 }
 
