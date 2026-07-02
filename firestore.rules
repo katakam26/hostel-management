@@ -1,0 +1,78 @@
+rules_version = '2';
+
+// Firestore security rules for the Hostel Management app.
+//
+// The app performs every read/write while the user is signed in (owner,
+// tenant, or staff), so the ACTIVE ruleset below requires authentication for
+// all access. That keeps the database closed to the public while letting the
+// app work out of the box.
+//
+// A stricter, role-aware ruleset is provided (commented out) at the bottom for
+// when you want per-collection role enforcement. Deploy these from the Firebase
+// console (Firestore Database -> Rules) or with the Firebase CLI:
+//   firebase deploy --only firestore:rules
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- ACTIVE: authenticated-only access -----------------------------
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+
+    // ---- OPTIONAL: role-aware rules (uncomment to harden) ---------------
+    // Remove the block above first, then uncomment this one.
+    //
+    // function signedIn() { return request.auth != null; }
+    // function myUser() {
+    //   return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    // }
+    // function isOwner() { return signedIn() && myUser().role == 'owner'; }
+    // function myLinkedId() { return myUser().linkedId; }
+    //
+    // // A user manages their own users/{uid} doc (created at signup /
+    // // provisioning); anyone signed in may read profiles.
+    // match /users/{uid} {
+    //   allow read: if signedIn();
+    //   allow create, update: if request.auth.uid == uid || isOwner();
+    // }
+    //
+    // // Hostel structure & directories: owner writes, everyone signed-in reads.
+    // match /blocks/{id}   { allow read: if signedIn(); allow write: if isOwner(); }
+    // match /floors/{id}   { allow read: if signedIn(); allow write: if isOwner(); }
+    // match /rooms/{id}    { allow read: if signedIn(); allow write: if isOwner(); }
+    // match /beds/{id}     { allow read: if signedIn(); allow write: if isOwner(); }
+    // match /tenants/{id}  { allow read: if signedIn(); allow write: if isOwner(); }
+    // match /staff/{id}    { allow read: if signedIn(); allow write: if isOwner(); }
+    // match /expenses/{id} { allow read: if isOwner();  allow write: if isOwner(); }
+    // match /menus/{id}    { allow read: if signedIn(); allow write: if isOwner(); }
+    // match /notices/{id}  { allow read: if signedIn(); allow write: if isOwner(); }
+    //
+    // // Payments: owner manages; a tenant may mark their own bill paid.
+    // match /payments/{id} {
+    //   allow read: if signedIn();
+    //   allow create, delete: if isOwner();
+    //   allow update: if isOwner() ||
+    //     (signedIn() && resource.data.tenantId == myLinkedId());
+    // }
+    //
+    // // Complaints: tenant raises; owner assigns; assigned staff updates.
+    // match /complaints/{id} {
+    //   allow read: if signedIn();
+    //   allow create: if signedIn();
+    //   allow update: if isOwner() ||
+    //     (signedIn() && resource.data.assignedStaffId == myLinkedId());
+    // }
+    //
+    // // Tenant-authored content.
+    // match /ratings/{id}         { allow read: if signedIn(); allow create: if signedIn(); }
+    // match /amenityBookings/{id} { allow read: if signedIn(); allow create: if signedIn(); }
+    // match /requests/{id}        { allow read: if isOwner();  allow create: if signedIn(); }
+    //
+    // // Attendance: staff writes their own rows.
+    // match /attendance/{id} {
+    //   allow read: if signedIn();
+    //   allow write: if isOwner() ||
+    //     (signedIn() && request.resource.data.personId == myLinkedId());
+    // }
+  }
+}
