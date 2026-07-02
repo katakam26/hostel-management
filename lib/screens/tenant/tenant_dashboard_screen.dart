@@ -94,9 +94,12 @@ class _RoomCard extends StatelessWidget {
                       : fs.beds.doc(tenant.bedId).get(),
                   builder: (context, bedSnap) {
                     if (tenant.bedId == null) return _row('Bed', '—');
-                    final n = (bedSnap.hasData && bedSnap.data!.exists)
-                        ? bedSnap.data!.data()?['bedNumber']?.toString()
-                        : null;
+                    if (!bedSnap.hasData) return _row('Bed', '…');
+                    final data =
+                        bedSnap.data!.exists ? bedSnap.data!.data() : null;
+                    final n = data == null
+                        ? null
+                        : data['bedNumber']?.toString();
                     return _row('Bed', n == null ? '…' : 'Bed $n');
                   },
                 ),
